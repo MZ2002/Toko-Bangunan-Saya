@@ -1,0 +1,6 @@
+{
+  "name": "TB Jaya Abadi",
+  "description": "Buku daftar harga digital dan pencatatan pengeluaran pribadi toko bangunan TB Jaya Abadi.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

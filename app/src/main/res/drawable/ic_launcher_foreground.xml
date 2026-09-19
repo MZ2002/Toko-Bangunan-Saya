@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Centered within 66dp safe zone (21..87) -->
+    <!-- Building/Warehouse roof silhouette in warm gold/amber -->
+    <path
+        android:fillColor="#F59E0B"
+        android:pathData="M54,26 L29,45 L34,45 L34,78 L74,78 L74,45 L79,45 Z" />
+    <!-- Inner building cutout in dark slate -->
+    <path
+        android:fillColor="#0F172A"
+        android:pathData="M39,52 L69,52 L69,78 L39,78 Z" />
+    <!-- Price tag & store symbol inside: building supplies brick & price marker -->
+    <path
+        android:fillColor="#FCD34D"
+        android:pathData="M44,57 L64,57 L64,62 L44,62 Z M44,66 L52,66 L52,73 L44,73 Z M56,66 L64,66 L64,73 L56,73 Z" />
+    <!-- TB Monogram badge on top gable -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M51,37 L57,37 L57,40 L55.5,40 L55.5,46 L52.5,46 L52.5,40 L51,40 Z" />
+</vector>
