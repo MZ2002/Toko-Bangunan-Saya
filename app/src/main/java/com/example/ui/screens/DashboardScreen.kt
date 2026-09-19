@@ -21,12 +21,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.Calculate
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Inventory
 import androidx.compose.material.icons.filled.Payment
+import androidx.compose.material.icons.filled.PriceCheck
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Store
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -41,10 +44,15 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -52,13 +60,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
 import com.example.data.model.ProductWithDetails
 import com.example.ui.components.AppCard
-import com.example.ui.components.ProfitBadge
-import com.example.ui.theme.DarkSurfaceElevated
+import com.example.ui.components.SellingPriceCalculatorDialog
+import com.example.ui.components.StockBadge
 import com.example.ui.theme.ProfitGreen
 import com.example.ui.viewmodel.MainViewModel
+import com.example.ui.viewmodel.RecentActivity
 import com.example.util.Formatters
+import java.io.File
 
 @Composable
 fun DashboardScreen(
@@ -71,11 +82,21 @@ fun DashboardScreen(
 ) {
     val allProducts by viewModel.allProducts.collectAsStateWithLifecycle()
     val favoriteProducts by viewModel.favoriteProducts.collectAsStateWithLifecycle()
-    val allCategories by viewModel.allCategories.collectAsStateWithLifecycle()
-    val filteredExpensesTotal by viewModel.filteredExpensesTotal.collectAsStateWithLifecycle()
+    val lowStockProducts by viewModel.lowStockProducts.collectAsStateWithLifecycle()
+    val thisMonthExpensesTotal by viewModel.thisMonthExpensesTotal.collectAsStateWithLifecycle()
+    val recentPriceUpdatesCount by viewModel.recentPriceUpdatesCount.collectAsStateWithLifecycle()
+    val recentActivities by viewModel.recentActivities.collectAsStateWithLifecycle()
+
+    var showCalculator by remember { mutableStateOf(false) }
+
+    if (showCalculator) {
+        SellingPriceCalculatorDialog(
+            onDismiss = { showCalculator = false }
+        )
+    }
 
     if (allProducts.isEmpty()) {
-        // EXACT EMPTY STATE REQUIRED BY USER SPECIFICATION
+        // EXACT ZERO DATA REQUIREMENT ON FIRST LAUNCH
         Box(
             modifier = modifier
                 .fillMaxSize()
@@ -105,23 +126,23 @@ fun DashboardScreen(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 Text(
-                    text = "Selamat datang di TB Jaya Abadi",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
+                    text = "TB Jaya Abadi",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onBackground,
                     textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
                 Text(
-                    text = "Buku Daftar Harga Digital Toko",
+                    text = "Buku Harga Digital Toko",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
                 Card(
                     shape = RoundedCornerShape(16.dp),
@@ -142,7 +163,7 @@ fun DashboardScreen(
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "Silakan tambahkan barang pertama Anda.",
+                            text = "Database dalam keadaan kosong. Silakan tambahkan barang pertama Anda.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center
@@ -150,7 +171,7 @@ fun DashboardScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(28.dp))
 
                 Button(
                     onClick = onNavigateToAddProduct,
@@ -172,10 +193,22 @@ fun DashboardScreen(
                         color = MaterialTheme.colorScheme.onPrimary
                     )
                 }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedButton(
+                    onClick = { showCalculator = true },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Icon(Icons.Default.Calculate, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Kalkulator Harga Jual", fontWeight = FontWeight.SemiBold)
+                }
             }
         }
     } else {
-        // DASHBOARD WITH REAL USER DATA
+        // REAL DATA DASHBOARD
         LazyColumn(
             modifier = modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 32.dp)
@@ -201,7 +234,7 @@ fun DashboardScreen(
                                 color = MaterialTheme.colorScheme.primary
                             )
                             Text(
-                                text = "Buku Daftar Harga Digital Pribadi",
+                                text = "Buku Harga Digital Pribadi",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -224,7 +257,7 @@ fun DashboardScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Quick Search Button
+                    // Quick Search Bar
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -245,7 +278,7 @@ fun DashboardScreen(
                             )
                             Spacer(modifier = Modifier.width(12.dp))
                             Text(
-                                text = "Cari nama barang, merek, satuan...",
+                                text = "Cari nama barang, SKU, merek, satuan...",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -254,7 +287,7 @@ fun DashboardScreen(
                 }
             }
 
-            // Summary Stats Cards
+            // Summary Stats Cards (2x2 Grid)
             item {
                 Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
                     Text(
@@ -266,6 +299,7 @@ fun DashboardScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
+                    // Row 1: Total Barang & Stok Rendah
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -273,17 +307,47 @@ fun DashboardScreen(
                         StatCard(
                             title = "Total Barang",
                             value = "${allProducts.size}",
-                            subtitle = "${allCategories.size} Kategori",
+                            subtitle = "Tersimpan di database",
                             icon = Icons.Default.Inventory,
+                            tintColor = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.weight(1f),
                             onClick = { onNavigateToProductList(null) }
                         )
 
                         StatCard(
-                            title = "Pengeluaran",
-                            value = Formatters.formatRupiah(filteredExpensesTotal),
-                            subtitle = "Bulan Ini",
+                            title = "Stok Rendah",
+                            value = "${lowStockProducts.size}",
+                            subtitle = if (lowStockProducts.isNotEmpty()) "Perlu ditambah" else "Stok aman",
+                            icon = Icons.Default.Warning,
+                            tintColor = if (lowStockProducts.isNotEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.weight(1f),
+                            onClick = { onNavigateToProductList(null) }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Row 2: Harga Diperbarui & Pengeluaran Bulan Ini
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        StatCard(
+                            title = "Harga Diperbarui",
+                            value = "$recentPriceUpdatesCount",
+                            subtitle = "30 hari terakhir",
+                            icon = Icons.Default.PriceCheck,
+                            tintColor = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.weight(1f),
+                            onClick = { onNavigateToProductList(null) }
+                        )
+
+                        StatCard(
+                            title = "Pengeluaran Bulan Ini",
+                            value = Formatters.formatRupiah(thisMonthExpensesTotal),
+                            subtitle = "Bulan berjalan",
                             icon = Icons.Default.Payment,
+                            tintColor = MaterialTheme.colorScheme.tertiary,
                             modifier = Modifier.weight(1f),
                             onClick = onNavigateToExpenses
                         )
@@ -291,18 +355,18 @@ fun DashboardScreen(
                 }
             }
 
-            // Quick Action Buttons
+            // Quick Actions: Tambah Barang, Pengeluaran, Kalkulator
             item {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 20.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Button(
                         onClick = onNavigateToAddProduct,
                         modifier = Modifier
-                            .weight(1f)
+                            .weight(1.2f)
                             .height(50.dp)
                             .testTag("dashboard_add_product_button"),
                         shape = RoundedCornerShape(12.dp),
@@ -327,9 +391,65 @@ fun DashboardScreen(
                             .testTag("dashboard_add_expense_button"),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Icon(Icons.Default.Payment, contentDescription = null)
+                        Icon(Icons.Default.Payment, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Pengeluaran", fontWeight = FontWeight.Bold)
+                        Text("Pengeluaran", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+
+                    OutlinedButton(
+                        onClick = { showCalculator = true },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(50.dp)
+                            .testTag("dashboard_calculator_button"),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.Calculate, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Kalkulator", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+
+            // Aktivitas Terbaru (Recent Activities) Section
+            if (recentActivities.isNotEmpty()) {
+                item {
+                    Column(modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 22.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.History,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Aktivitas Terbaru",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        AppCard {
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                recentActivities.take(5).forEachIndexed { idx, act ->
+                                    ActivityItemRow(act)
+                                    if (idx < minOf(4, recentActivities.size - 1)) {
+                                        androidx.compose.material3.HorizontalDivider(
+                                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -408,7 +528,7 @@ fun DashboardScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Barang Terakhir Ditambahkan",
+                            text = "Daftar Barang Terbaru",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
@@ -442,11 +562,54 @@ fun DashboardScreen(
 }
 
 @Composable
+private fun ActivityItemRow(act: RecentActivity) {
+    val badgeColor = when (act.badgeType) {
+        "PRICE" -> MaterialTheme.colorScheme.primary
+        "STOCK" -> MaterialTheme.colorScheme.secondary
+        "PRODUCT" -> ProfitGreen
+        else -> MaterialTheme.colorScheme.tertiary
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(badgeColor)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = act.title,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = act.subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Text(
+            text = Formatters.formatDate(act.timestamp),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 11.sp
+        )
+    }
+}
+
+@Composable
 private fun StatCard(
     title: String,
     value: String,
     subtitle: String,
     icon: ImageVector,
+    tintColor: Color,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
@@ -466,7 +629,7 @@ private fun StatCard(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
+                tint = tintColor,
                 modifier = Modifier.size(18.dp)
             )
         }
@@ -487,7 +650,7 @@ private fun StatCard(
         Text(
             text = subtitle,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.primary,
+            color = tintColor,
             fontWeight = FontWeight.SemiBold
         )
     }
@@ -505,116 +668,155 @@ fun ProductDashboardItem(
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.Top
         ) {
+            // Thumbnail image if available
+            val imgUri = pwd.product.imageUri
+            if (!imgUri.isNullOrBlank() && File(imgUri).exists()) {
+                AsyncImage(
+                    model = File(imgUri),
+                    contentDescription = pwd.product.name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(54.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                )
+            }
+
             Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (pwd.product.category.isNotBlank()) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant
-                        ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (pwd.product.sku.isNotBlank()) {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant
+                                ) {
+                                    Text(
+                                        text = pwd.product.sku,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(6.dp))
+                            }
+                            if (pwd.product.category.isNotBlank()) {
+                                Text(
+                                    text = pwd.product.category,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            if (pwd.product.brand.isNotBlank()) {
+                                Text(
+                                    text = " • ${pwd.product.brand}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(2.dp))
+
+                        Text(
+                            text = pwd.product.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+
+                        if (pwd.product.variant.isNotBlank()) {
                             Text(
-                                text = pwd.product.category,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                text = "Varian: ${pwd.product.variant}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Spacer(modifier = Modifier.width(6.dp))
                     }
-                    if (pwd.product.brand.isNotBlank()) {
-                        Text(
-                            text = pwd.product.brand,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+
+                    IconButton(
+                        onClick = onToggleFavorite,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (pwd.product.isFavorite) Icons.Default.Star else Icons.Outlined.StarBorder,
+                            contentDescription = "Favorit",
+                            tint = if (pwd.product.isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(6.dp))
 
-                Text(
-                    text = pwd.product.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-
-                if (pwd.product.variant.isNotBlank()) {
-                    Text(
-                        text = "Varian: ${pwd.product.variant}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                // Stock indicator if configured
+                if (pwd.product.stock > 0 || pwd.product.minimumStock > 0) {
+                    StockBadge(
+                        stock = pwd.product.stock,
+                        stockUnit = pwd.product.stockUnit,
+                        minimumStock = pwd.product.minimumStock
                     )
+                    Spacer(modifier = Modifier.height(6.dp))
                 }
-            }
 
-            IconButton(
-                onClick = onToggleFavorite,
-                modifier = Modifier.size(36.dp)
-            ) {
-                Icon(
-                    imageVector = if (pwd.product.isFavorite) Icons.Default.Star else Icons.Outlined.StarBorder,
-                    contentDescription = "Favorit",
-                    tint = if (pwd.product.isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
+                // Price breakdown row
+                val purchase = pwd.latestPurchasePrice
+                val sellingCalculations = pwd.getCalculatedSellingPrices()
 
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // Price breakdown row
-        val purchase = pwd.latestPurchasePrice
-        val sellingCalculations = pwd.getCalculatedSellingPrices()
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Bottom
-        ) {
-            Column {
-                if (purchase != null) {
-                    Text(
-                        text = "Beli: ${Formatters.formatRupiah(purchase.price)} / ${purchase.unit}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                if (pwd.conversion != null) {
-                    val c = pwd.conversion!!
-                    Text(
-                        text = "1 ${c.fromUnit} = ${Formatters.formatNumber(c.quantity)} ${c.toUnit}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.secondary
-                    )
-                }
-            }
-
-            Column(horizontalAlignment = Alignment.End) {
-                if (sellingCalculations.isNotEmpty()) {
-                    val first = sellingCalculations.first()
-                    Text(
-                        text = "Jual: ${Formatters.formatRupiah(first.sellingPrice.price)} / ${first.sellingPrice.unit}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    if (first.profit != null) {
-                        Text(
-                            text = "+${Formatters.formatRupiah(first.profit)} (${Formatters.formatPercentage(first.profitPercentage)})",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = ProfitGreen
-                        )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Bottom
+                ) {
+                    Column {
+                        if (purchase != null) {
+                            Text(
+                                text = "Beli: ${Formatters.formatRupiah(purchase.price)}/${purchase.unit}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (pwd.conversion != null) {
+                            val c = pwd.conversion!!
+                            Text(
+                                text = "1 ${c.fromUnit} = ${Formatters.formatNumber(c.quantity)} ${c.toUnit}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        }
                     }
-                } else {
-                    Text(
-                        text = "Belum ada harga jual",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+
+                    Column(horizontalAlignment = Alignment.End) {
+                        if (sellingCalculations.isNotEmpty()) {
+                            val first = sellingCalculations.first()
+                            Text(
+                                text = "Jual: ${Formatters.formatRupiah(first.sellingPrice.price)}/${first.sellingPrice.unit}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            if (first.profit != null) {
+                                Text(
+                                    text = "+${Formatters.formatRupiah(first.profit)} (${Formatters.formatPercentage(first.profitPercentage)})",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = ProfitGreen
+                                )
+                            }
+                        } else {
+                            Text(
+                                text = "Belum ada harga jual",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             }
         }

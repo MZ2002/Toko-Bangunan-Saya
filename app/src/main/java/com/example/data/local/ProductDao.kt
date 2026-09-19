@@ -12,6 +12,7 @@ import com.example.data.model.Product
 import com.example.data.model.ProductWithDetails
 import com.example.data.model.PurchasePrice
 import com.example.data.model.SellingPrice
+import com.example.data.model.StockHistory
 import com.example.data.model.UnitConversion
 import kotlinx.coroutines.flow.Flow
 
@@ -45,6 +46,9 @@ interface ProductDao {
 
     @Query("UPDATE products SET is_favorite = :isFavorite, updated_at = :updatedAt WHERE id = :id")
     suspend fun updateFavoriteStatus(id: Long, isFavorite: Boolean, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE products SET stock = :newStock, updated_at = :updatedAt WHERE id = :id")
+    suspend fun updateStock(id: Long, newStock: Double, updatedAt: Long = System.currentTimeMillis())
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertProduct(product: Product): Long
@@ -82,13 +86,42 @@ interface ProductDao {
     @Query("SELECT * FROM price_history WHERE product_id = :productId ORDER BY changed_at DESC")
     fun getPriceHistoryForProduct(productId: Long): Flow<List<PriceHistory>>
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertStockHistory(history: StockHistory): Long
+
+    @Query("SELECT * FROM stock_history WHERE product_id = :productId ORDER BY created_at DESC")
+    fun getStockHistoryForProduct(productId: Long): Flow<List<StockHistory>>
+
+    @Transaction
+    suspend fun adjustStock(
+        productId: Long,
+        type: String, // "TAMBAH", "KURANG", "PENYESUAIAN"
+        quantity: Double,
+        newStock: Double,
+        unit: String,
+        note: String
+    ) {
+        updateStock(productId, newStock, System.currentTimeMillis())
+        insertStockHistory(
+            StockHistory(
+                productId = productId,
+                type = type,
+                quantity = quantity,
+                unit = unit,
+                note = note,
+                createdAt = System.currentTimeMillis()
+            )
+        )
+    }
+
     @Transaction
     suspend fun saveFullProduct(
         product: Product,
         purchasePrice: PurchasePrice?,
         conversion: UnitConversion?,
         sellingPrices: List<SellingPrice>,
-        recordedHistory: List<PriceHistory> = emptyList()
+        recordedHistory: List<PriceHistory> = emptyList(),
+        stockHistory: List<StockHistory> = emptyList()
     ): Long {
         val productId = if (product.id == 0L) {
             insertProduct(product)
@@ -116,9 +149,14 @@ interface ProductDao {
             insertSellingPrices(preparedSellingPrices)
         }
 
-        // Catat riwayat jika ada
+        // Catat riwayat harga jika ada
         recordedHistory.forEach { history ->
             insertPriceHistory(history.copy(productId = productId))
+        }
+
+        // Catat riwayat stok jika ada
+        stockHistory.forEach { history ->
+            insertStockHistory(history.copy(productId = productId))
         }
 
         return productId

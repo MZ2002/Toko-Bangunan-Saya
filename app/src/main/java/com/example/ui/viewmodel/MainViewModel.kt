@@ -1,6 +1,7 @@
 package com.example.ui.viewmodel
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.AppDatabase
@@ -10,6 +11,7 @@ import com.example.data.model.Product
 import com.example.data.model.ProductWithDetails
 import com.example.data.model.PurchasePrice
 import com.example.data.model.SellingPrice
+import com.example.data.model.StockHistory
 import com.example.data.model.UnitConversion
 import com.example.data.repository.ExpenseRepository
 import com.example.data.repository.ProductRepository
@@ -31,13 +33,21 @@ enum class ExpenseDateFilter(val label: String) {
     THIS_YEAR("Tahun Ini")
 }
 
+data class RecentActivity(
+    val title: String,
+    val subtitle: String,
+    val timestamp: Long,
+    val badgeType: String // "PRICE", "STOCK", "PRODUCT", "EXPENSE"
+)
+
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
+    private val prefs = application.getSharedPreferences("tb_jaya_abadi_prefs", Context.MODE_PRIVATE)
     private val database = AppDatabase.getDatabase(application)
     private val productRepository = ProductRepository(database.productDao())
     private val expenseRepository = ExpenseRepository(database.expenseDao())
 
-    val isDarkMode = MutableStateFlow(true) // User requested Dark Mode as primary
+    val isDarkMode = MutableStateFlow(true) // Dark Mode as primary theme
 
     val allProducts: StateFlow<List<ProductWithDetails>> = productRepository.allProducts
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -57,7 +67,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val searchQuery = MutableStateFlow("")
     val selectedCategory = MutableStateFlow<String?>(null)
 
-    // Filtered Products for Search and Category
+    // Filtered Products for Search (Name, SKU, Brand, Category, Variant, Units)
     val filteredProducts: StateFlow<List<ProductWithDetails>> = combine(
         allProducts,
         searchQuery,
@@ -74,6 +84,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             list = list.filter { pwd ->
                 val p = pwd.product
                 p.name.lowercase().contains(q) ||
+                    p.sku.lowercase().contains(q) ||
                     p.brand.lowercase().contains(q) ||
                     p.category.lowercase().contains(q) ||
                     p.variant.lowercase().contains(q) ||
@@ -86,6 +97,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         list
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Low stock products
+    val lowStockProducts: StateFlow<List<ProductWithDetails>> = allProducts.combine(MutableStateFlow(Unit)) { products, _ ->
+        products.filter { it.isLowStock }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Expenses
@@ -101,7 +117,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         allExpenses,
         expenseFilter
     ) { expenses, filter ->
-        val now = System.currentTimeMillis()
         val calendar = Calendar.getInstance()
 
         when (filter) {
@@ -148,6 +163,100 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         list.sumOf { it.amount }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
 
+    // Total pengeluaran bulan ini untuk Dashboard
+    val thisMonthExpensesTotal: StateFlow<Double> = allExpenses.combine(MutableStateFlow(Unit)) { expenses, _ ->
+        val calendar = Calendar.getInstance()
+        calendar.set(Calendar.DAY_OF_MONTH, 1)
+        calendar.set(Calendar.HOUR_OF_DAY, 0)
+        calendar.set(Calendar.MINUTE, 0)
+        calendar.set(Calendar.SECOND, 0)
+        calendar.set(Calendar.MILLISECOND, 0)
+        val startOfMonth = calendar.timeInMillis
+        expenses.filter { it.date >= startOfMonth }.sumOf { it.amount }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.0)
+
+    // Jumlah harga yang baru diperbarui dalam 30 hari terakhir
+    val recentPriceUpdatesCount: StateFlow<Int> = allProducts.combine(MutableStateFlow(Unit)) { products, _ ->
+        val thirtyDaysAgo = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000)
+        products.count { pwd ->
+            pwd.priceHistory.any { it.changedAt >= thirtyDaysAgo }
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    // Aktivitas terbaru untuk Dashboard (harga diperbarui, barang baru, stok diubah, pengeluaran)
+    val recentActivities: StateFlow<List<RecentActivity>> = combine(
+        allProducts,
+        allExpenses
+    ) { products, expenses ->
+        val activities = mutableListOf<RecentActivity>()
+
+        // 1. Aktivitas perubahan harga
+        products.forEach { pwd ->
+            pwd.priceHistory.take(3).forEach { ph ->
+                activities.add(
+                    RecentActivity(
+                        title = "Harga ${ph.type.lowercase()} ${pwd.product.name} diperbarui",
+                        subtitle = "${ph.unit}: Rp${ph.oldPrice.toLong()} → Rp${ph.newPrice.toLong()}",
+                        timestamp = ph.changedAt,
+                        badgeType = "PRICE"
+                    )
+                )
+            }
+        }
+
+        // 2. Aktivitas stok
+        products.forEach { pwd ->
+            pwd.stockHistory.take(2).forEach { sh ->
+                val typeDesc = when (sh.type) {
+                    "TAMBAH" -> "Penambahan stok"
+                    "KURANG" -> "Pengurangan stok"
+                    else -> "Penyesuaian stok"
+                }
+                activities.add(
+                    RecentActivity(
+                        title = "$typeDesc: ${pwd.product.name}",
+                        subtitle = "${sh.quantity} ${sh.unit} (${sh.note.ifBlank { "Manual" }})",
+                        timestamp = sh.createdAt,
+                        badgeType = "STOCK"
+                    )
+                )
+            }
+        }
+
+        // 3. Aktivitas barang baru
+        products.sortedByDescending { it.product.createdAt }.take(5).forEach { pwd ->
+            activities.add(
+                RecentActivity(
+                    title = "Barang ditambahkan: ${pwd.product.name}",
+                    subtitle = listOfNotNull(pwd.product.category.takeIf { it.isNotBlank() }, pwd.product.brand.takeIf { it.isNotBlank() }).joinToString(" • "),
+                    timestamp = pwd.product.createdAt,
+                    badgeType = "PRODUCT"
+                )
+            )
+        }
+
+        // 4. Aktivitas pengeluaran
+        expenses.sortedByDescending { it.date }.take(5).forEach { exp ->
+            activities.add(
+                RecentActivity(
+                    title = "Pengeluaran: ${exp.description.ifBlank { exp.category }}",
+                    subtitle = "Rp${exp.amount.toLong()}",
+                    timestamp = exp.date,
+                    badgeType = "EXPENSE"
+                )
+            )
+        }
+
+        activities.sortedByDescending { it.timestamp }.take(10)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val lastBackupTimestamp = MutableStateFlow(prefs.getLong("last_backup_time", 0L))
+
+    fun setLastBackupTime(time: Long) {
+        prefs.edit().putLong("last_backup_time", time).apply()
+        lastBackupTimestamp.value = time
+    }
+
     fun toggleDarkMode() {
         isDarkMode.value = !isDarkMode.value
     }
@@ -165,13 +274,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun adjustStock(
+        productId: Long,
+        type: String,
+        quantity: Double,
+        newStock: Double,
+        unit: String,
+        note: String,
+        onComplete: () -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            val safeStock = maxOf(0.0, newStock)
+            productRepository.adjustStock(
+                productId = productId,
+                type = type,
+                quantity = quantity,
+                newStock = safeStock,
+                unit = unit,
+                note = note
+            )
+            onComplete()
+        }
+    }
+
     fun saveProduct(
         id: Long = 0L,
         name: String,
+        sku: String = "",
         category: String,
         brand: String,
         variant: String,
         notes: String,
+        imageUri: String? = null,
+        stock: Double = 0.0,
+        stockUnit: String = "",
+        minimumStock: Double = 0.0,
         isFavorite: Boolean,
         purchasePrice: Double?,
         purchaseUnit: String,
@@ -185,13 +322,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val existingProduct = if (id > 0) productRepository.getProductByIdOnce(id) else null
 
+            val safeStock = maxOf(0.0, stock)
+            val safeMinStock = maxOf(0.0, minimumStock)
+
             val product = Product(
                 id = id,
                 name = name.trim(),
+                sku = sku.trim(),
                 category = category.trim(),
                 brand = brand.trim(),
                 variant = variant.trim(),
                 notes = notes.trim(),
+                imageUri = imageUri,
+                stock = safeStock,
+                stockUnit = stockUnit.trim(),
+                minimumStock = safeMinStock,
                 isFavorite = isFavorite,
                 updatedAt = System.currentTimeMillis()
             )
@@ -229,22 +374,59 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
 
-            // Catat riwayat perubahan harga jika harga beli berubah pada barang yang sudah ada
+            // Catat riwayat perubahan harga jika harga modal atau harga jual berubah
             val history = mutableListOf<PriceHistory>()
-            if (existingProduct != null && purchase != null) {
+            val now = System.currentTimeMillis()
+
+            if (existingProduct != null) {
+                // 1. Cek perubahan harga beli
                 val oldPurchase = existingProduct.latestPurchasePrice
-                if (oldPurchase != null && (oldPurchase.price != purchase.price || oldPurchase.unit != purchase.unit)) {
-                    history.add(
-                        PriceHistory(
-                            productId = id,
-                            type = "HARGA BELI",
-                            unit = purchase.unit,
-                            oldPrice = oldPurchase.price,
-                            newPrice = purchase.price,
-                            changedAt = System.currentTimeMillis()
+                if (purchase != null) {
+                    if (oldPurchase != null && (oldPurchase.price != purchase.price || !oldPurchase.unit.equals(purchase.unit, ignoreCase = true))) {
+                        history.add(
+                            PriceHistory(
+                                productId = id,
+                                type = "Harga Modal",
+                                unit = purchase.unit,
+                                oldPrice = oldPurchase.price,
+                                newPrice = purchase.price,
+                                changedAt = now
+                            )
                         )
-                    )
+                    }
                 }
+
+                // 2. Cek perubahan harga jual
+                sellingList.forEach { newSp ->
+                    val oldSp = existingProduct.sellingPrices.find { it.unit.equals(newSp.unit, ignoreCase = true) }
+                    if (oldSp != null && oldSp.price != newSp.price) {
+                        history.add(
+                            PriceHistory(
+                                productId = id,
+                                type = "Harga Jual",
+                                unit = newSp.unit,
+                                oldPrice = oldSp.price,
+                                newPrice = newSp.price,
+                                changedAt = now
+                            )
+                        )
+                    }
+                }
+            }
+
+            // Riwayat stok awal jika produk baru dengan stok > 0
+            val initialStockHistory = mutableListOf<StockHistory>()
+            if (id == 0L && safeStock > 0.0) {
+                initialStockHistory.add(
+                    StockHistory(
+                        productId = 0L,
+                        type = "PENYESUAIAN",
+                        quantity = safeStock,
+                        unit = stockUnit.trim(),
+                        note = "Stok awal barang",
+                        createdAt = now
+                    )
+                )
             }
 
             val savedId = productRepository.saveProduct(
@@ -252,7 +434,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 purchasePrice = purchase,
                 conversion = conversion,
                 sellingPrices = sellingList,
-                recordedHistory = history
+                recordedHistory = history,
+                stockHistory = initialStockHistory
             )
             onComplete(savedId)
         }
@@ -305,7 +488,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     purchasePrice = pwd.latestPurchasePrice?.copy(id = 0L, productId = 0L),
                     conversion = pwd.conversion?.copy(id = 0L, productId = 0L),
                     sellingPrices = pwd.sellingPrices.map { it.copy(id = 0L, productId = 0L) },
-                    recordedHistory = pwd.priceHistory.map { it.copy(id = 0L, productId = 0L) }
+                    recordedHistory = pwd.priceHistory.map { it.copy(id = 0L, productId = 0L) },
+                    stockHistory = pwd.stockHistory.map { it.copy(id = 0L, productId = 0L) }
                 )
                 prodCount++
             }
@@ -315,6 +499,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 expCount++
             }
 
+            setLastBackupTime(System.currentTimeMillis())
             onComplete(prodCount, expCount)
         }
     }

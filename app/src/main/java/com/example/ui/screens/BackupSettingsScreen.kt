@@ -22,13 +22,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Store
 import androidx.compose.material.icons.filled.TableChart
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -52,11 +56,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.components.AppCard
 import com.example.ui.components.SectionHeader
 import com.example.ui.viewmodel.MainViewModel
+import com.example.util.BackupData
 import com.example.util.BackupHelper
+import com.example.util.Formatters
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -69,11 +76,23 @@ fun BackupSettingsScreen(
     val allProducts by viewModel.allProducts.collectAsStateWithLifecycle()
     val allExpenses by viewModel.allExpenses.collectAsStateWithLifecycle()
 
+    val prefs = remember { context.getSharedPreferences("tb_jaya_abadi_settings", Context.MODE_PRIVATE) }
+    var lastBackupTime by remember {
+        mutableStateOf(prefs.getLong("last_backup_timestamp", 0L))
+    }
+
+    fun updateLastBackupTime() {
+        val now = System.currentTimeMillis()
+        prefs.edit().putLong("last_backup_timestamp", now).apply()
+        lastBackupTime = now
+    }
+
     var showJsonDialog by remember { mutableStateOf(false) }
     var jsonDialogContent by remember { mutableStateOf("") }
     var showImportDialog by remember { mutableStateOf(false) }
     var showCsvDialog by remember { mutableStateOf(false) }
     var csvDialogContent by remember { mutableStateOf("") }
+    var pendingRestoreData by remember { mutableStateOf<BackupData?>(null) }
 
     // Dialog to view & copy JSON backup
     if (showJsonDialog) {
@@ -83,7 +102,7 @@ fun BackupSettingsScreen(
             text = {
                 Column {
                     Text(
-                        text = "Salin teks di bawah ini dan simpan di catatan/email Anda:",
+                        text = "Salin seluruh teks JSON di bawah ini dan simpan di catatan atau email Anda:",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -104,6 +123,7 @@ fun BackupSettingsScreen(
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         val clip = ClipData.newPlainText("TB Jaya Abadi Backup", jsonDialogContent)
                         clipboard.setPrimaryClip(clip)
+                        updateLastBackupTime()
                         Toast.makeText(context, "Data JSON berhasil disalin ke clipboard!", Toast.LENGTH_SHORT).show()
                         showJsonDialog = false
                     }
@@ -126,7 +146,7 @@ fun BackupSettingsScreen(
     if (showCsvDialog) {
         AlertDialog(
             onDismissRequest = { showCsvDialog = false },
-            title = { Text("Export CSV Daftar Harga", fontWeight = FontWeight.Bold) },
+            title = { Text("Ekspor CSV (Excel / Spreadsheet)", fontWeight = FontWeight.Bold) },
             text = {
                 Column {
                     Text(
@@ -151,6 +171,7 @@ fun BackupSettingsScreen(
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         val clip = ClipData.newPlainText("TB Jaya Abadi CSV", csvDialogContent)
                         clipboard.setPrimaryClip(clip)
+                        updateLastBackupTime()
                         Toast.makeText(context, "Data CSV berhasil disalin ke clipboard!", Toast.LENGTH_SHORT).show()
                         showCsvDialog = false
                     }
@@ -169,7 +190,7 @@ fun BackupSettingsScreen(
         )
     }
 
-    // Dialog to import JSON
+    // Dialog to paste & parse JSON
     if (showImportDialog) {
         var importInputText by remember { mutableStateOf("") }
         var importError by remember { mutableStateOf<String?>(null) }
@@ -191,7 +212,7 @@ fun BackupSettingsScreen(
                             importInputText = it
                             importError = null
                         },
-                        placeholder = { Text("Tempel JSON di sini...") },
+                        placeholder = { Text("Tempel teks JSON di sini...") },
                         maxLines = 8,
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth()
@@ -211,12 +232,10 @@ fun BackupSettingsScreen(
                     onClick = {
                         try {
                             val backupData = BackupHelper.parseFromJson(importInputText)
-                            viewModel.importData(backupData) { pCount, eCount ->
-                                Toast.makeText(
-                                    context,
-                                    "Berhasil restore $pCount barang dan $eCount pengeluaran!",
-                                    Toast.LENGTH_LONG
-                                ).show()
+                            if (backupData.products.isEmpty() && backupData.expenses.isEmpty()) {
+                                importError = "File JSON tidak berisi data barang atau pengeluaran."
+                            } else {
+                                pendingRestoreData = backupData
                                 showImportDialog = false
                             }
                         } catch (e: Exception) {
@@ -224,11 +243,78 @@ fun BackupSettingsScreen(
                         }
                     }
                 ) {
-                    Text("Restore Sekarang")
+                    Text("Lanjutkan")
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showImportDialog = false }) {
+                    Text("Batal")
+                }
+            },
+            shape = RoundedCornerShape(16.dp)
+        )
+    }
+
+    // Confirmation dialog before actual restore
+    if (pendingRestoreData != null) {
+        val data = pendingRestoreData!!
+        AlertDialog(
+            onDismissRequest = { pendingRestoreData = null },
+            icon = {
+                Icon(
+                    Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(36.dp)
+                )
+            },
+            title = { Text("Konfirmasi Restore Data", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text(
+                        text = "Ditemukan data yang siap diimpor:",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "• ${data.products.size} Barang",
+                        fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        text = "• ${data.expenses.size} Catatan Pengeluaran",
+                        fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "Data ini akan ditambahkan ke dalam database toko Anda. Apakah Anda yakin ingin memproses restore sekarang?",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val toRestore = pendingRestoreData
+                        pendingRestoreData = null
+                        if (toRestore != null) {
+                            viewModel.importData(toRestore) { pCount, eCount ->
+                                Toast.makeText(
+                                    context,
+                                    "Berhasil memulihkan $pCount barang dan $eCount pengeluaran!",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        }
+                    }
+                ) {
+                    Text("Ya, Restore Data")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRestoreData = null }) {
                     Text("Batal")
                 }
             },
@@ -281,7 +367,7 @@ fun BackupSettingsScreen(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "Buku Daftar Harga Digital Toko Bangunan",
+                                text = "Buku Harga Digital & Manajemen Toko",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -343,8 +429,46 @@ fun BackupSettingsScreen(
                 AppCard {
                     SectionHeader(
                         title = "Cadangan Data (Backup & Restore)",
-                        subtitle = "Amankan data daftar harga toko Anda agar tidak hilang"
+                        subtitle = "Amankan data daftar harga toko Anda secara berkala"
                     )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Last Backup Status
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.History,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Status Backup Terakhir",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = if (lastBackupTime > 0) {
+                                        Formatters.formatDate(lastBackupTime)
+                                    } else {
+                                        "Belum pernah melakukan backup"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(14.dp))
 
                     // Export JSON
@@ -403,7 +527,7 @@ fun BackupSettingsScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Aplikasi ini dirancang khusus untuk pemilik TB Jaya Abadi sebagai buku catatan digital pribadi yang cepat, fleksibel dalam berbagai satuan (meter, bal, kg, karung, pcs, pack, dll.), dan 100% offline tanpa kebocoran data.",
+                        text = "Aplikasi ini dirancang khusus untuk pemilik TB Jaya Abadi sebagai buku catatan digital pribadi yang cepat, fleksibel dalam berbagai satuan (meter, bal, kg, karung, pcs, pack, dll.), dan 100% offline tanpa kebocoran data.\n\nDatabase barang kosong ketika pertama kali dijalankan sehingga seluruh data diisi murni oleh pemilik toko.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

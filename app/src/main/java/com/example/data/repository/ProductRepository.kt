@@ -6,6 +6,7 @@ import com.example.data.model.Product
 import com.example.data.model.ProductWithDetails
 import com.example.data.model.PurchasePrice
 import com.example.data.model.SellingPrice
+import com.example.data.model.StockHistory
 import com.example.data.model.UnitConversion
 import kotlinx.coroutines.flow.Flow
 
@@ -29,6 +30,10 @@ class ProductRepository(private val productDao: ProductDao) {
         return productDao.getPriceHistoryForProduct(productId)
     }
 
+    fun getStockHistory(productId: Long): Flow<List<StockHistory>> {
+        return productDao.getStockHistoryForProduct(productId)
+    }
+
     suspend fun toggleFavorite(productId: Long, currentStatus: Boolean) {
         productDao.updateFavoriteStatus(productId, !currentStatus)
     }
@@ -37,19 +42,39 @@ class ProductRepository(private val productDao: ProductDao) {
         productDao.deleteProductById(productId)
     }
 
+    suspend fun adjustStock(
+        productId: Long,
+        type: String,
+        quantity: Double,
+        newStock: Double,
+        unit: String,
+        note: String
+    ) {
+        productDao.adjustStock(
+            productId = productId,
+            type = type,
+            quantity = quantity,
+            newStock = newStock,
+            unit = unit,
+            note = note
+        )
+    }
+
     suspend fun saveProduct(
         product: Product,
         purchasePrice: PurchasePrice?,
         conversion: UnitConversion?,
         sellingPrices: List<SellingPrice>,
-        recordedHistory: List<PriceHistory> = emptyList()
+        recordedHistory: List<PriceHistory> = emptyList(),
+        stockHistory: List<StockHistory> = emptyList()
     ): Long {
         return productDao.saveFullProduct(
             product = product,
             purchasePrice = purchasePrice,
             conversion = conversion,
             sellingPrices = sellingPrices,
-            recordedHistory = recordedHistory
+            recordedHistory = recordedHistory,
+            stockHistory = stockHistory
         )
     }
 }

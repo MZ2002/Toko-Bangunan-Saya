@@ -22,7 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -33,10 +33,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -60,6 +62,15 @@ fun ProductListScreen(
     val categories by viewModel.allCategories.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val selectedCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
+    val lowStockProducts by viewModel.lowStockProducts.collectAsStateWithLifecycle()
+
+    var filterLowStockOnly by remember { mutableStateOf(false) }
+
+    val displayList = if (filterLowStockOnly) {
+        filteredProducts.filter { it.isLowStock }
+    } else {
+        filteredProducts
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -89,7 +100,7 @@ fun ProductListScreen(
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { viewModel.searchQuery.value = it },
-                    placeholder = { Text("Cari nama, merek, ukuran, satuan...") },
+                    placeholder = { Text("Cari nama, SKU, merek, satuan...") },
                     leadingIcon = {
                         Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                     },
@@ -112,39 +123,60 @@ fun ProductListScreen(
                         .testTag("product_search_input")
                 )
 
-                // Categories horizontal chip row
-                if (categories.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                // Filter chips: Semua, Stok Rendah, Kategori-kategori
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = selectedCategory == null && !filterLowStockOnly,
+                        onClick = {
+                            viewModel.selectedCategory.value = null
+                            filterLowStockOnly = false
+                        },
+                        label = { Text("Semua (${allProducts.size})", fontSize = 13.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    )
+
+                    // Low stock quick filter
+                    FilterChip(
+                        selected = filterLowStockOnly,
+                        onClick = {
+                            filterLowStockOnly = !filterLowStockOnly
+                        },
+                        label = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Warning, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Stok Rendah (${lowStockProducts.size})", fontSize = 13.sp)
+                            }
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.errorContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    )
+
+                    categories.forEach { cat ->
+                        val isSelected = selectedCategory.equals(cat, ignoreCase = true) && !filterLowStockOnly
                         FilterChip(
-                            selected = selectedCategory == null,
-                            onClick = { viewModel.selectedCategory.value = null },
-                            label = { Text("Semua (${allProducts.size})", fontSize = 13.sp) },
+                            selected = isSelected,
+                            onClick = {
+                                filterLowStockOnly = false
+                                viewModel.selectedCategory.value = if (isSelected) null else cat
+                            },
+                            label = { Text(cat, fontSize = 13.sp) },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
                                 selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         )
-
-                        categories.forEach { cat ->
-                            val isSelected = selectedCategory.equals(cat, ignoreCase = true)
-                            FilterChip(
-                                selected = isSelected,
-                                onClick = {
-                                    viewModel.selectedCategory.value = if (isSelected) null else cat
-                                },
-                                label = { Text(cat, fontSize = 13.sp) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                            )
-                        }
                     }
                 }
             }
@@ -159,8 +191,8 @@ fun ProductListScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (searchQuery.isNotBlank() || selectedCategory != null) {
-                            "Ditemukan ${filteredProducts.size} barang"
+                        text = if (searchQuery.isNotBlank() || selectedCategory != null || filterLowStockOnly) {
+                            "Ditemukan ${displayList.size} barang"
                         } else {
                             "Daftar Semua Barang (${allProducts.size})"
                         },
@@ -188,14 +220,14 @@ fun ProductListScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Silakan tambahkan barang pertama Anda menggunakan tombol di bawah.",
+                            text = "Silakan tambahkan barang pertama Anda menggunakan tombol + di bawah.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center
                         )
                     }
                 }
-            } else if (filteredProducts.isEmpty()) {
+            } else if (displayList.isEmpty()) {
                 // No search match
                 Box(
                     modifier = Modifier
@@ -212,7 +244,7 @@ fun ProductListScreen(
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "Coba kata kunci pencarian atau kategori lain.",
+                            text = "Coba kata kunci pencarian atau matikan filter stok rendah.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center
@@ -225,7 +257,7 @@ fun ProductListScreen(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 80.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    items(filteredProducts, key = { it.product.id }) { pwd ->
+                    items(displayList, key = { it.product.id }) { pwd ->
                         ProductDashboardItem(
                             pwd = pwd,
                             onToggleFavorite = { viewModel.toggleFavorite(pwd.product.id, pwd.product.isFavorite) },

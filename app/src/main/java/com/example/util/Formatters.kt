@@ -38,8 +38,11 @@ object Formatters {
         if (pct == null) return "-"
         val symbols = DecimalFormatSymbols(indonesianLocale).apply {
             decimalSeparator = ','
+            groupingSeparator = '.'
         }
-        val formatter = DecimalFormat("+#,##0.#;-#,##0.#", symbols)
+        val isWhole = pct % 1.0 == 0.0
+        val pattern = if (isWhole) "#,##0" else "#,##0.##"
+        val formatter = DecimalFormat(pattern, symbols)
         return "${formatter.format(pct)}%"
     }
 
